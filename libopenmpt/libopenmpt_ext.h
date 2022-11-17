@@ -434,7 +434,7 @@ LIBOPENMPT_API inline openmpt_module_ext_interface_interactive* openmpt_module_e
 }
 
 LIBOPENMPT_API inline void openmpt_module_ext_destroy_interface(void* ptr) {
-	if (ptr) {
+	if (!ptr) {
 		return;
 	}
 
