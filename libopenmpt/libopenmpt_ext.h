@@ -10,6 +10,7 @@
 #ifndef LIBOPENMPT_EXT_H
 #define LIBOPENMPT_EXT_H
 
+#include <cstdlib>
 #include "libopenmpt_config.h"
 #include "libopenmpt.h"
 
@@ -412,7 +413,50 @@ typedef struct openmpt_module_ext_interface_interactive3 {
 
 /* add stuff here */
 
+#define MPT_BUILD_WASM 1
+#ifdef MPT_BUILD_WASM
+/*
+ * WASM access points
+ */
 
+LIBOPENMPT_API inline openmpt_module_ext_interface_interactive* openmpt_module_ext_create_interface_interactive(openmpt_module_ext* ptr) {
+	if (!ptr) {
+		return nullptr;
+	}
+	auto* interface_ptr = (openmpt_module_ext_interface_interactive*)malloc(sizeof(openmpt_module_ext_interface_interactive));
+	auto ret = openmpt_module_ext_get_interface( ptr, LIBOPENMPT_EXT_C_INTERFACE_INTERACTIVE, interface_ptr, sizeof(openmpt_module_ext_interface_interactive));
+
+	if (ret) {
+		return interface_ptr;
+	}
+
+	return nullptr;
+}
+
+LIBOPENMPT_API inline void openmpt_module_ext_destroy_interface(void* ptr) {
+	if (ptr) {
+		return;
+	}
+
+	free(ptr);
+}
+
+LIBOPENMPT_API inline double openmpt_module_ext_interface_interactive_get_channel_volume(openmpt_module_ext* ptr, openmpt_module_ext_interface_interactive* struct_ptr, int32_t channel) {
+	if (!struct_ptr) {
+		return 0.0;
+	}
+
+	return struct_ptr->get_channel_volume(ptr, channel);
+}
+LIBOPENMPT_API inline int openmpt_module_ext_interface_interactive_set_channel_volume(openmpt_module_ext* ptr, openmpt_module_ext_interface_interactive* struct_ptr, int32_t channel, double volume) {
+	if (!struct_ptr) {
+		return 0;
+	}
+
+	return struct_ptr->set_channel_volume(ptr, channel, volume);
+}
+
+#endif
 
 #ifdef __cplusplus
 }
