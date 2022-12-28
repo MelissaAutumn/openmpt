@@ -546,18 +546,18 @@ bool CSoundFile::SaveWAVSample(SAMPLEINDEX nSample, std::ostream &f) const
 		return false;
 
 	mpt::IO::OFile<std::ostream> ff(f);
-	WAVWriter file(ff);
+	WAVSampleWriter file(ff);
 
 	file.WriteFormat(sample.GetSampleRate(GetType()), sample.GetElementarySampleSize() * 8, sample.GetNumChannels(), WAVFormatChunk::fmtPCM);
 
 	// Write sample data
 	file.StartChunk(RIFFChunk::iddata);
-	file.Skip(SampleIO(
+	SampleIO(
 		sample.uFlags[CHN_16BIT] ? SampleIO::_16bit : SampleIO::_8bit,
 		sample.uFlags[CHN_STEREO] ? SampleIO::stereoInterleaved : SampleIO::mono,
 		SampleIO::littleEndian,
 		sample.uFlags[CHN_16BIT] ? SampleIO::signedPCM : SampleIO::unsignedPCM)
-		.WriteSample(f, sample));
+		.WriteSample(f, sample);
 
 	file.WriteLoopInformation(sample);
 	file.WriteExtraInformation(sample, GetType());
@@ -1140,6 +1140,18 @@ bool CSoundFile::ReadS3ISample(SAMPLEINDEX nSample, FileReader &file)
 		return false;
 	}
 
+	if(sampleHeader.sampleType >= S3MSampleHeader::typeAdMel)
+	{
+		if(SupportsOPL())
+		{
+			InitOPL();
+		} else
+		{
+			AddToLog(LogInformation, U_("OPL instruments are not supported by this format."));
+			return true;
+		}
+	}
+
 	DestroySampleThreadsafe(nSample);
 
 	ModSample &sample = Samples[nSample];
@@ -1148,10 +1160,6 @@ bool CSoundFile::ReadS3ISample(SAMPLEINDEX nSample, FileReader &file)
 
 	if(sampleHeader.sampleType < S3MSampleHeader::typeAdMel)
 		sampleHeader.GetSampleFormat(false).ReadSample(sample, file);
-	else if(SupportsOPL())
-		InitOPL();
-	else
-		AddToLog(LogInformation, U_("OPL instruments are not supported by this format."));
 
 	sample.Convert(MOD_TYPE_S3M, GetType());
 	sample.PrecomputeLoops(*this, false);

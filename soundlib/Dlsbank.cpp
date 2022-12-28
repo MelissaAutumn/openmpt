@@ -14,7 +14,7 @@
 #ifdef MODPLUG_TRACKER
 #include "../mptrack/Mptrack.h"
 #include "mpt/io_file/inputfile.hpp"
-#include "mpt/io_file/inputfile_filecursor.hpp"
+#include "mpt/io_file_read/inputfile_filecursor.hpp"
 #include "../common/mptFileIO.h"
 #endif
 #include "Dlsbank.h"
@@ -667,51 +667,65 @@ bool CDLSBank::IsDLSBank(const mpt::PathString &filename)
 
 const DLSINSTRUMENT *CDLSBank::FindInstrument(bool isDrum, uint32 bank, uint32 program, uint32 key, uint32 *pInsNo) const
 {
-	// This helps finding the "more correct" instrument if we search for an instrument in any bank, and the higher-bank instruments appear first in the file
-	// Fixes issues when loading GeneralUser GS into OpenMPT's MIDI library.
-	std::vector<std::reference_wrapper<const DLSINSTRUMENT>> sortedInstr{m_Instruments.begin(), m_Instruments.end()};
-	if(bank >= 0x4000 || program >= 0x80)
+	uint32 minBank = ((bank << 1) & 0x7F00) | (bank & 0x7F);
+	uint32 maxBank = minBank;
+	if(bank >= 0x4000)
 	{
-		std::sort(sortedInstr.begin(), sortedInstr.end(), [](const DLSINSTRUMENT &l, const DLSINSTRUMENT &r)
-				{ return std::tie(l.ulBank, l.ulInstrument) < std::tie(r.ulBank, r.ulInstrument); });
+		minBank = 0x0000;
+		maxBank = 0x7F7F;
+	}
+	if(isDrum)
+	{
+		minBank |= F_INSTRUMENT_DRUMS;
+		maxBank |= F_INSTRUMENT_DRUMS;
 	}
 
-	for(const DLSINSTRUMENT &dlsIns : sortedInstr)
+	const bool singleInstr = (minBank == maxBank) && (program < 0x80);
+	const auto CompareInstrFunc = [singleInstr](const DLSINSTRUMENT &l, const DLSINSTRUMENT &r)
 	{
-		uint32 insbank = ((dlsIns.ulBank & 0x7F00) >> 1) | (dlsIns.ulBank & 0x7F);
-		if((bank >= 0x4000) || (insbank == bank))
-		{
-			if(isDrum && (dlsIns.ulBank & F_INSTRUMENT_DRUMS))
-			{
-				if((program >= 0x80) || (program == (dlsIns.ulInstrument & 0x7F)))
-				{
-					for(const auto &region : dlsIns.Regions)
-					{
-						if(region.IsDummy())
-							continue;
+		if(singleInstr)
+			return l < r;
+		else
+			return l.ulBank < r.ulBank;
+	};
 
-						if((!key || key >= 0x80)
-						   || (key >= region.uKeyMin && key <= region.uKeyMax))
-						{
-							if(pInsNo)
-								*pInsNo = static_cast<uint32>(std::distance(m_Instruments.data(), &dlsIns));
-							// cppcheck false-positive
-							// cppcheck-suppress returnDanglingLifetime
-							return &dlsIns;
-						}
-					}
-				}
-			} else if(!isDrum && !(dlsIns.ulBank & F_INSTRUMENT_DRUMS))
+	DLSINSTRUMENT findInstr{};
+	findInstr.ulInstrument = program;
+	findInstr.ulBank = minBank;
+	const auto minInstr = std::lower_bound(m_Instruments.begin(), m_Instruments.end(), findInstr, CompareInstrFunc);
+	findInstr.ulBank = maxBank;
+	const auto maxInstr = std::upper_bound(m_Instruments.begin(), m_Instruments.end(), findInstr, CompareInstrFunc);
+	const auto instrRange = mpt::as_span(m_Instruments.data() + std::distance(m_Instruments.begin(), minInstr), std::distance(minInstr, maxInstr));
+
+	for(const DLSINSTRUMENT &dlsIns : instrRange)
+	{
+		if((program < 0x80) && program != (dlsIns.ulInstrument & 0x7F))
+			continue;
+
+		if(isDrum)
+		{
+			const bool anyKey = !key || key >= 0x80;
+			for(const auto &region : dlsIns.Regions)
 			{
-				if((program >= 0x80) || (program == (dlsIns.ulInstrument & 0x7F)))
+				if(region.IsDummy())
+					continue;
+
+				if(anyKey || (key >= region.uKeyMin && key <= region.uKeyMax))
 				{
 					if(pInsNo)
 						*pInsNo = static_cast<uint32>(std::distance(m_Instruments.data(), &dlsIns));
-					// cppcheck false-positive
-					// cppcheck-suppress returnDanglingLifetime
 					return &dlsIns;
+				} else if(region.uKeyMin > key)
+				{
+					// Regions are sorted, if we arrived here we won't find anything in the remaining regions
+					break;
 				}
 			}
+		} else
+		{
+			if(pInsNo)
+				*pInsNo = static_cast<uint32>(std::distance(m_Instruments.data(), &dlsIns));
+			return &dlsIns;
 		}
 	}
 
@@ -1621,9 +1635,17 @@ bool CDLSBank::Open(FileReader file)
 	{
 		ConvertSF2ToDLS(sf2info);
 	}
-#ifdef DLSBANK_LOG
-	MPT_LOG_GLOBAL(LogDebug, "DLSBANK", U_("DLS bank closed"));
-#endif
+
+	// FindInstrument requires the instrument to be sorted for picking the best instrument from the MIDI library when there are multiple banks.
+	// And of course this is also helpful for creating the treeview UI
+	std::sort(m_Instruments.begin(), m_Instruments.end());
+	// Sort regions (for drums)
+	for(auto &instr : m_Instruments)
+	{
+		std::sort(instr.Regions.begin(), instr.Regions.end(), [](const DLSREGION &l, const DLSREGION &r)
+				  { return std::tie(l.uKeyMin, l.uKeyMax) < std::tie(r.uKeyMin, r.uKeyMax); });
+	}
+
 	return true;
 }
 
@@ -2203,9 +2225,9 @@ bool CDLSBank::ExtractInstrument(CSoundFile &sndFile, INSTRUMENTINDEX nInstr, ui
 				} else
 				{
 					SmpLength len = std::min(dwLen / 2u, sampleCopy.nLength);
-					const int16 *src = reinterpret_cast<int16 *>(pWaveForm.data());
+					const std::byte *src = mpt::byte_cast<const std::byte *>(pWaveForm.data());
 					int16 *dst = sampleCopy.sample16() + offsetNew;
-					CopySample<SC::ConversionChain<SC::Convert<int16, int16>, SC::DecodeIdentity<int16>>>(dst, len, 2, src, pWaveForm.size(), 1);
+					CopySample<SC::ConversionChain<SC::Convert<int16, int16>, SC::DecodeInt16<0, littleEndian16>>>(dst, len, 2, src, pWaveForm.size(), 1);
 				}
 				sample.FreeSample();
 				sample = sampleCopy;

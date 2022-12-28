@@ -716,7 +716,7 @@ std::vector<GetLengthType> CSoundFile::GetLength(enmGetLengthResetMode adjustMod
 					break;
 
 				case 0xB0:  // Pattern Loop
-					PatternLoop(playState, chn, param & 0x0F);
+					PatternLoop(playState, nChn, param & 0x0F);
 					break;
 				
 				case 0xF0:  // Active macro
@@ -729,7 +729,7 @@ std::vector<GetLengthType> CSoundFile::GetLength(enmGetLengthResetMode adjustMod
 				switch(param & 0xF0)
 				{
 				case 0x60:  // Pattern Loop
-					PatternLoop(playState, chn, param & 0x0F);
+					PatternLoop(playState, nChn, param & 0x0F);
 					break;
 
 				case 0xF0:  // Active macro
@@ -1176,7 +1176,7 @@ std::vector<GetLengthType> CSoundFile::GetLength(enmGetLengthResetMode adjustMod
 					case CMD_FINETUNE:
 					case CMD_FINETUNE_SMOOTH:
 						memory.RenderChannel(nChn, oldTickDuration);  // Re-sync what we've got so far
-						SetFinetune(nChn, playState, false);  // TODO should render each tick individually for CMD_FINETUNE_SMOOTH for higher sync accuracy
+						chn.microTuning = CalculateFinetuneTarget(playState.m_nPattern, playState.m_nRow, nChn);  // TODO should render each tick individually for CMD_FINETUNE_SMOOTH for higher sync accuracy
 						break;
 					default:
 						break;
@@ -3442,13 +3442,7 @@ bool CSoundFile::ProcessEffects()
 		case CMD_FINETUNE:
 		case CMD_FINETUNE_SMOOTH:
 			if(m_SongFlags[SONG_FIRSTTICK] || cmd == CMD_FINETUNE_SMOOTH)
-			{
-				SetFinetune(nChn, m_PlayState, cmd == CMD_FINETUNE_SMOOTH);
-#ifndef NO_PLUGINS
-				if(IMixPlugin *plugin = GetChannelInstrumentPlugin(m_PlayState.Chn[nChn]); plugin != nullptr)
-					plugin->MidiPitchBendRaw(chn.GetMIDIPitchBend(), nChn);
-#endif  // NO_PLUGINS
-			}
+				SetFinetune(m_PlayState.m_nPattern, m_PlayState.m_nRow, nChn, m_PlayState, cmd == CMD_FINETUNE_SMOOTH);
 			break;
 
 		// Set Channel Global Volume
@@ -4037,10 +4031,24 @@ void CSoundFile::ExtraFinePortamentoDown(ModChannel &chn, ModCommand::PARAM para
 }
 
 
-void CSoundFile::SetFinetune(CHANNELINDEX channel, PlayState &playState, bool isSmooth) const
+// Process finetune command from pattern editor
+void CSoundFile::ProcessFinetune(PATTERNINDEX pattern, ROWINDEX row, CHANNELINDEX channel, bool isSmooth)
+{
+	SetFinetune(pattern, row, channel, m_PlayState, isSmooth);
+	// Also apply to notes played via CModDoc::PlayNote
+	for(CHANNELINDEX chn = GetNumChannels(); chn < MAX_CHANNELS; chn++)
+	{
+		auto &modChn = m_PlayState.Chn[chn];
+		if(modChn.nMasterChn == channel + 1 && modChn.isPreviewNote && !modChn.dwFlags[CHN_KEYOFF])
+			modChn.microTuning = m_PlayState.Chn[channel].microTuning;
+	}
+}
+
+
+void CSoundFile::SetFinetune(PATTERNINDEX pattern, ROWINDEX row, CHANNELINDEX channel, PlayState &playState, bool isSmooth) const
 {
 	ModChannel &chn = playState.Chn[channel];
-	int16 newTuning = mpt::saturate_cast<int16>(static_cast<int32>(CalculateXParam(playState.m_nPattern, playState.m_nRow, channel, nullptr)) - 0x8000);
+	int16 newTuning = CalculateFinetuneTarget(pattern, row, channel);
 
 	if(isSmooth)
 	{
@@ -4052,6 +4060,17 @@ void CSoundFile::SetFinetune(CHANNELINDEX channel, PlayState &playState, bool is
 		}
 	}
 	chn.microTuning = newTuning;
+
+#ifndef NO_PLUGINS
+	if(IMixPlugin *plugin = GetChannelInstrumentPlugin(chn); plugin != nullptr)
+		plugin->MidiPitchBendRaw(chn.GetMIDIPitchBend(), channel);
+#endif  // NO_PLUGINS
+}
+
+
+int16 CSoundFile::CalculateFinetuneTarget(PATTERNINDEX pattern, ROWINDEX row, CHANNELINDEX channel) const
+{
+	return mpt::saturate_cast<int16>(static_cast<int32>(CalculateXParam(pattern, row, channel, nullptr)) - 0x8000);
 }
 
 
@@ -4628,7 +4647,7 @@ void CSoundFile::ExtendedMODCommands(CHANNELINDEX nChn, ModCommand::PARAM param)
 	// E6x: Pattern Loop
 	case 0x60:
 		if(m_SongFlags[SONG_FIRSTTICK])
-			PatternLoop(m_PlayState, chn, param & 0x0F);
+			PatternLoop(m_PlayState, nChn, param & 0x0F);
 		break;
 	// E7x: Set Tremolo WaveForm
 	case 0x70:	chn.nTremoloType = param & 0x07; break;
@@ -4813,7 +4832,7 @@ void CSoundFile::ExtendedS3MCommands(CHANNELINDEX nChn, ModCommand::PARAM param)
 	// SBx: Pattern Loop
 	case 0xB0:
 		if(m_SongFlags[SONG_FIRSTTICK])
-			PatternLoop(m_PlayState, chn, param & 0x0F);
+			PatternLoop(m_PlayState, nChn, param & 0x0F);
 		break;
 	// SCx: Note Cut
 	case 0xC0:
@@ -5965,10 +5984,13 @@ void CSoundFile::SetTempo(TEMPO param, bool setFromUI)
 }
 
 
-void CSoundFile::PatternLoop(PlayState &state, ModChannel &chn, ModCommand::PARAM param) const
+void CSoundFile::PatternLoop(PlayState &state, CHANNELINDEX nChn, ModCommand::PARAM param) const
 {
-	if(m_playBehaviour[kST3NoMutedChannels] && chn.dwFlags[CHN_MUTE | CHN_SYNCMUTE])
+	if(m_playBehaviour[kST3NoMutedChannels] && state.Chn[nChn].dwFlags[CHN_MUTE | CHN_SYNCMUTE])
 		return;  // not even effects are processed on muted S3M channels
+
+	// ST3 doesn't have per-channel pattern loop memory.
+	ModChannel &chn = state.Chn[(GetType() == MOD_TYPE_S3M) ? 0 : nChn];
 
 	if(!param)
 	{
@@ -6024,17 +6046,6 @@ void CSoundFile::PatternLoop(PlayState &state, ModChannel &chn, ModCommand::PARA
 		if(m_playBehaviour[kITPatternLoopWithJumps])
 			state.m_posJump = ORDERINDEX_INVALID;
 	}
-
-	if(GetType() == MOD_TYPE_S3M)
-	{
-		// ST3 doesn't have per-channel pattern loop memory, so spam all changes to other channels as well.
-		for(CHANNELINDEX i = 0; i < GetNumChannels(); i++)
-		{
-			state.Chn[i].nPatternLoop = chn.nPatternLoop;
-			state.Chn[i].nPatternLoopCount = chn.nPatternLoopCount;
-		}
-	}
-
 }
 
 

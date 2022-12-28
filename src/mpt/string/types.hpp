@@ -76,7 +76,7 @@ inline constexpr auto stdio_encoding = logical_encoding::locale;
 inline constexpr auto environment_encoding = logical_encoding::locale;
 
 // std::exception::what()
-inline constexpr auto exception_encoding = logical_encoding::active_locale;
+inline constexpr auto exception_encoding = logical_encoding::locale;
 
 
 
@@ -195,28 +195,49 @@ using widechar = char32_t;
 
 
 
-template <common_encoding common_encoding_tag>
-struct common_encoding_char_traits : std::char_traits<char> {
+#if MPT_MSVC_BEFORE(2019, 0)
+// Work-around for VS2017 auto template argument ICE.
+// Use as encoding_char_traits<std::remove_const<decltype(foo)>::type, foo> instead of encoding_char_traits<foo>
+template <typename encoding_type, encoding_type encoding_tag>
+struct encoding_char_traits : std::char_traits<char> {
 	static constexpr auto encoding() noexcept {
-		return common_encoding_tag;
+		return encoding_tag;
 	}
 };
-
-template <logical_encoding logical_encoding_tag>
-struct logical_encoding_char_traits : std::char_traits<char> {
+#else
+template <auto encoding_tag, typename encoding_type = decltype(encoding_tag)>
+struct encoding_char_traits : std::char_traits<char> {
 	static constexpr auto encoding() noexcept {
-		return logical_encoding_tag;
+		return encoding_tag;
 	}
 };
+#endif
 
 
 
-using lstring = std::basic_string<char, mpt::logical_encoding_char_traits<logical_encoding::locale>>;
+#if MPT_MSVC_BEFORE(2019, 0)
+using lstring = std::basic_string<char, mpt::encoding_char_traits<logical_encoding, logical_encoding::locale>>;
+#else
+using lstring = std::basic_string<char, mpt::encoding_char_traits<logical_encoding::locale>>;
+#endif
 
-using utf8string = std::basic_string<char, mpt::common_encoding_char_traits<common_encoding::utf8>>;
+#if MPT_MSVC_BEFORE(2019, 0)
+using utf8string = std::basic_string<char, mpt::encoding_char_traits<common_encoding, common_encoding::utf8>>;
+#else
+using utf8string = std::basic_string<char, mpt::encoding_char_traits<common_encoding::utf8>>;
+#endif
 
-using source_string = std::basic_string<char, mpt::common_encoding_char_traits<source_encoding>>;
-using exception_string = std::basic_string<char, mpt::logical_encoding_char_traits<exception_encoding>>;
+#if MPT_MSVC_BEFORE(2019, 0)
+using source_string = std::basic_string<char, mpt::encoding_char_traits<typename std::remove_const<decltype(source_encoding)>::type, source_encoding>>;
+#else
+using source_string = std::basic_string<char, mpt::encoding_char_traits<source_encoding>>;
+#endif
+
+#if MPT_MSVC_BEFORE(2019, 0)
+using exception_string = std::basic_string<char, mpt::encoding_char_traits<typename std::remove_const<decltype(exception_encoding)>::type, exception_encoding>>;
+#else
+using exception_string = std::basic_string<char, mpt::encoding_char_traits<exception_encoding>>;
+#endif
 
 #if MPT_OS_WINDOWS
 
@@ -247,7 +268,11 @@ using u8char = char8_t;
 
 #else // !C++20
 
-using u8string = std::basic_string<char, mpt::common_encoding_char_traits<common_encoding::utf8>>;
+#if MPT_MSVC_BEFORE(2019, 0)
+using u8string = std::basic_string<char, mpt::encoding_char_traits<common_encoding, common_encoding::utf8>>;
+#else
+using u8string = std::basic_string<char, mpt::encoding_char_traits<common_encoding::utf8>>;
+#endif
 using u8char = char;
 #define MPT_U8CHAR(x)    x
 #define MPT_U8LITERAL(x) x

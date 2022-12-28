@@ -20,26 +20,28 @@
 
 namespace openmpt123 {
 
+inline constexpr auto pulseaudio_encoding = mpt::common_encoding::utf8;
+
 struct pulseaudio_exception : public exception {
-	static std::string error_to_string( int error ) {
+	static mpt::ustring error_to_string( int error ) {
 		try {
 			if ( error == 0 ) {
-				return std::string();
+				return mpt::ustring();
 			}
-			std::ostringstream e;
+			string_concat_stream<mpt::ustring> e;
 			const char * str = pa_strerror( error );
 			if ( !str ) {
-				e << "error=" << error;
+				e << MPT_USTRING("error=)") << error;
 				return e.str();
 			}
 			if ( std::strlen(str) == 0 ) {
-				e << "error=" << error;
+				e << MPT_USTRING("error=") << error;
 				return e.str();
 			}
-			e << str << " (error=" << error << ")";
+			e << mpt::transcode<mpt::ustring>( pulseaudio_encoding, str ) << MPT_USTRING(" (error=") << error << MPT_USTRING(")");
 			return e.str();
 		} catch ( const std::bad_alloc & ) {
-			return std::string();
+			return mpt::ustring();
 		}
 	}
 	pulseaudio_exception( int error ) : exception( error_to_string( error ) ) { }
@@ -53,7 +55,7 @@ private:
 	std::vector<float> sampleBufFloat;
 	std::vector<std::int16_t> sampleBufInt;
 public:
-	pulseaudio_stream_raii( commandlineflags & flags, std::ostream & /* log */ )
+	pulseaudio_stream_raii( commandlineflags & flags, concat_stream<mpt::ustring> & /* log */ )
 		: stream(NULL)
 		, channels(flags.channels)
 		, sampleSize(flags.use_float ? sizeof( float ) : sizeof( std::int16_t ))
@@ -152,10 +154,10 @@ public:
 	}
 };
 
-static std::string show_pulseaudio_devices( std::ostream & /* log */ ) {
-	std::ostringstream devices;
-	devices << " pulseaudio:" << std::endl;
-	devices << "    " << "0" << ": Default Device" << std::endl;
+static mpt::ustring show_pulseaudio_devices( concat_stream<mpt::ustring> & /* log */ ) {
+	string_concat_stream<mpt::ustring> devices;
+	devices << MPT_USTRING(" pulseaudio:") << lf;
+	devices << MPT_USTRING("    ") << MPT_USTRING("0") << MPT_USTRING(": Default Device") << lf;
 	return devices.str();
 }
 

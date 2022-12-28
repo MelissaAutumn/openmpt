@@ -1832,9 +1832,10 @@ template <typename Tstring>
 struct string_transcoder {
 };
 
-template <logical_encoding encoding>
-struct string_transcoder<std::basic_string<char, logical_encoding_char_traits<encoding>>> {
-	using string_type = std::basic_string<char, logical_encoding_char_traits<encoding>>;
+#if MPT_MSVC_BEFORE(2019, 0)
+template <typename encoding_type, encoding_type encoding>
+struct string_transcoder<std::basic_string<char, encoding_char_traits<encoding_type, encoding>>> {
+	using string_type = std::basic_string<char, encoding_char_traits<encoding_type, encoding>>;
 	static inline mpt::widestring decode(const string_type & src) {
 		return mpt::decode<string_type>(encoding, src);
 	}
@@ -1842,10 +1843,10 @@ struct string_transcoder<std::basic_string<char, logical_encoding_char_traits<en
 		return mpt::encode<string_type>(encoding, src);
 	}
 };
-
-template <common_encoding encoding>
-struct string_transcoder<std::basic_string<char, common_encoding_char_traits<encoding>>> {
-	using string_type = std::basic_string<char, common_encoding_char_traits<encoding>>;
+#else
+template <auto encoding>
+struct string_transcoder<std::basic_string<char, encoding_char_traits<encoding>>> {
+	using string_type = std::basic_string<char, encoding_char_traits<encoding>>;
 	static inline mpt::widestring decode(const string_type & src) {
 		return mpt::decode<string_type>(encoding, src);
 	}
@@ -1853,6 +1854,7 @@ struct string_transcoder<std::basic_string<char, common_encoding_char_traits<enc
 		return mpt::encode<string_type>(encoding, src);
 	}
 };
+#endif
 
 #if !defined(MPT_COMPILER_QUIRK_NO_WCHAR)
 template <>

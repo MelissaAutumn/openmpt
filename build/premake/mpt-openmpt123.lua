@@ -25,7 +25,14 @@
   files {
    "../../src/mpt/base/*.hpp",
    "../../src/mpt/detect/*.hpp",
+   "../../src/mpt/exception_text/*.hpp",
+   "../../src/mpt/format/*.hpp",
+   "../../src/mpt/io/*.hpp",
+   "../../src/mpt/io_file/*.hpp",
+   "../../src/mpt/parse/*.hpp",
+   "../../src/mpt/path/*.hpp",
    "../../src/mpt/string/*.hpp",
+   "../../src/mpt/string_transcode/*.hpp",
    "../../openmpt123/*.cpp",
    "../../openmpt123/*.hpp",
   }
