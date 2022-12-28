@@ -88,12 +88,12 @@ LDFLAGS  += -fno-inline-functions
 LDFLAGS += -s ALLOW_MEMORY_GROWTH=1
 
 else ifeq ($(EMSCRIPTEN_TARGET),audioworkletprocessor)
+
 # emits an es6 module in a single file suitable for use in an AudioWorkletProcessor
 CPPFLAGS += -DMPT_BUILD_WASM -DMPT_BUILD_AUDIOWORKLETPROCESSOR
 CXXFLAGS += 
 CFLAGS   += 
-LDFLAGS  += -s WASM=1 -s WASM_ASYNC_COMPILATION=0 -s MODULARIZE=1 -s EXPORT_ES6=1 -s SINGLE_FILE=1 -s EXPORTED_RUNTIME_METHODS=ccall,cwrap,dynCall  -s EXPORT_NAME="'libopenmpt'"
-
+LDFLAGS  += -s WASM=1 -s WASM_ASYNC_COMPILATION=0 -s MODULARIZE=1 -s EXPORT_ES6=1 -s SINGLE_FILE=1 -s EXPORTED_FUNCTIONS=_malloc,_free -s EXPORT_NAME="'createLibopenmpt'"
 LDFLAGS += -s ALLOW_MEMORY_GROWTH=1
 
 else ifeq ($(EMSCRIPTEN_TARGET),wasm)
@@ -123,7 +123,8 @@ endif
 
 CXXFLAGS += -s DISABLE_EXCEPTION_CATCHING=0
 CFLAGS   += -s DISABLE_EXCEPTION_CATCHING=0 -fno-strict-aliasing
-LDFLAGS  += -s DISABLE_EXCEPTION_CATCHING=0 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s ERROR_ON_MISSING_LIBRARIES=1 -s EXPORT_NAME="'libopenmpt'"
+LDFLAGS  += -s DISABLE_EXCEPTION_CATCHING=0 -s ERROR_ON_UNDEFINED_SYMBOLS=1 -s ERROR_ON_MISSING_LIBRARIES=1
+# -s EXPORT_NAME="'libopenmpt'"
 
 include build/make/warnings-clang.mk
 
